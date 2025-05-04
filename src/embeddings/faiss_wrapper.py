@@ -1,15 +1,24 @@
 """
 Wrapper for the FAISS module to provide a consistent interface for the LLM recommender.
-This will adapt the existing faiss.py functionality to the FaissIndex class expected
+This will adapt the existing faiss_utils.py functionality to the FaissIndex class expected
 by the LLM recommender.
 """
 
 import numpy as np
 from typing import List, Dict, Any, Union, Optional
 import importlib
+from dataclasses import dataclass
 
 # Import the existing faiss module functions
 from . import faiss_utils
+
+@dataclass
+class SearchResult:
+    """
+    Standard search result structure to ensure consistent interface.
+    """
+    indices: List[int]
+    scores: List[float]
 
 class FaissIndexWrapper:
     """
@@ -19,13 +28,11 @@ class FaissIndexWrapper:
     
     def __init__(self):
         """Initialize the wrapper."""
-        # If the original module has an initialization function, call it
-        if hasattr(faiss_utils, 'init') and callable(faiss_utils.init):
-            faiss_utils.init()
+        # Initialize the faiss_utils module
+        faiss_utils.init()
         
-        # Store internal state if needed
-        self.index = None
-        self.is_loaded = False
+        # Store internal state
+        self.is_loaded = True
     
     def load(self, path: str) -> bool:
         """
@@ -37,17 +44,16 @@ class FaissIndexWrapper:
         Returns:
             True if loaded successfully, False otherwise
         """
-        # If the original module has a load function, call it
-        if hasattr(faiss_utils, 'load_index') and callable(faiss_utils.load_index):
-            self.index = faiss_utils.load_index(path)
+        try:
+            faiss_utils.load_index(path)
             self.is_loaded = True
-        elif hasattr(faiss_utils, 'load') and callable(faiss_utils.load):
-            self.index = faiss_utils.load(path)
-            self.is_loaded = True
-        
-        return self.is_loaded
+            return True
+        except Exception as e:
+            print(f"Error loading FAISS index: {e}")
+            self.is_loaded = False
+            return False
     
-    def search(self, query: Union[str, np.ndarray], k: int = 5) -> Any:
+    def search(self, query: Union[str, np.ndarray], k: int = 5) -> SearchResult:
         """
         Search the index for similar items.
         
@@ -56,25 +62,17 @@ class FaissIndexWrapper:
             k: Number of results to return
             
         Returns:
-            Search results in the format used by the original module
+            SearchResult object with indices and scores
         """
-        # If query is a string, convert to embedding if needed
-        if isinstance(query, str) and hasattr(faiss_utils, 'text_to_embedding'):
-            query_vector = faiss_utils.text_to_embedding(query)
-        else:
-            query_vector = query
+        # Use the search function from faiss_utils
+        result = faiss_utils.search(query, k)
         
-        # Use the appropriate search function
-        if self.index is not None and hasattr(self.index, 'search'):
-            # If index object has a search method
-            return self.index.search(query_vector, k)
-        elif hasattr(faiss_utils, 'search') and callable(faiss_utils.search):
-            # If module has a search function
-            return faiss_utils.search(query_vector, k)
-        else:
-            raise NotImplementedError("Search functionality not found in the faiss module")
+        # Return in the expected format for LLMRecommender
+        return SearchResult(
+            indices=result["indices"].tolist(),  # Convert numpy array to list
+            scores=result["scores"].tolist()
+        )
     
-    # Add any other methods that might be expected by the LLM recommender
     def add(self, vectors: np.ndarray, ids: Optional[List[int]] = None) -> bool:
         """
         Add vectors to the index.
@@ -86,16 +84,38 @@ class FaissIndexWrapper:
         Returns:
             True if successful
         """
-        if self.index is not None and hasattr(self.index, 'add'):
+        index = faiss_utils.get_index()
+        if index is not None:
             if ids is not None:
-                self.index.add_with_ids(vectors, ids)
+                index.add_with_ids(vectors, np.array(ids))
             else:
-                self.index.add(vectors)
+                index.add(vectors)
             return True
-        elif hasattr(faiss_utils, 'add') and callable(faiss_utils.add):
-            return faiss_utils.add(vectors, ids)
-        else:
-            raise NotImplementedError("Add functionality not found in the faiss module")
+        return False
+    
+    def get_assessment_data(self) -> List[Dict[str, Any]]:
+        """
+        Get assessment data in the format expected by LLMRecommender.
+        
+        Returns:
+            List of assessment data dictionaries
+        """
+        df = faiss_utils.get_assessment_data()
+        
+        # Convert DataFrame to list of dictionaries with lowercase keys
+        assessments = []
+        for _, row in df.iterrows():
+            assessment = {
+                "name": row.get("Name", ""),
+                "url": row.get("URL", ""),
+                "duration": row.get("Duration (mins)", 0),
+                "remote_testing": row.get("Remote Testing Support", ""),
+                "adaptive_support": row.get("Adaptive/IRT Support", ""),
+                "test_types": row.get("Test Types", "")
+            }
+            assessments.append(assessment)
+        
+        return assessments
 
 # Create an alias for backward compatibility
 FaissIndex = FaissIndexWrapper

@@ -3,35 +3,50 @@ import numpy as np
 import pandas as pd
 from sentence_transformers import SentenceTransformer
 
-# === Load data and model ===
-data = pd.read_csv(
-    'C:/Users/devanshi/SHL-Assessment-Recommendation-System_Devanshi-Singh/data/processed/shl_product_catalog_ready_for_embedding.csv'
-)
-embeddings = np.load(
-    'C:/Users/devanshi/SHL-Assessment-Recommendation-System_Devanshi-Singh/data/embeddings/shl_name_embeddings.npy'
-).astype('float32')
+# Define paths consistently
+BASE_PATH = 'C:/Users/devanshi/SHL-Assessment-Recommendation-System_Devanshi-Singh'
+DATA_PATH = f'{BASE_PATH}/data/processed/shl_product_catalog_ready_for_embedding.csv'
+EMBEDDINGS_PATH = f'{BASE_PATH}/data/embeddings/shl_name_embeddings.npy'
+INDEX_PATH = f'{BASE_PATH}/data/embeddings/faiss_index'
 
-# === Normalize and initialize index ===
-faiss.normalize_L2(embeddings)
-dimension = embeddings.shape[1]
-index = faiss.IndexFlatIP(dimension)  # Cosine similarity (after normalization)
-index.add(embeddings)
-
-# === Load sentence transformer model ===
-model = SentenceTransformer('all-MiniLM-L6-v2')
-
+# === Initialize variables ===
+data = None
+embeddings = None
+index = None
+model = None
 
 def init():
     """
-    Optional init function to match expected interface.
+    Initialize the FAISS utils module, loading data, embeddings and model.
     """
-    pass
+    global data, embeddings, index, model
+    
+    # Load data
+    data = pd.read_csv(DATA_PATH)
+    
+    # Load embeddings
+    embeddings = np.load(EMBEDDINGS_PATH).astype('float32')
+    
+    # Normalize and initialize index
+    faiss.normalize_L2(embeddings)
+    dimension = embeddings.shape[1]
+    index = faiss.IndexFlatIP(dimension)  # Cosine similarity (after normalization)
+    index.add(embeddings)
+    
+    # Load sentence transformer model
+    model = SentenceTransformer('all-MiniLM-L6-v2')
+    
+    return True
 
 
 def text_to_embedding(text: str) -> np.ndarray:
     """
     Converts a text query to a normalized embedding vector.
     """
+    global model
+    if model is None:
+        model = SentenceTransformer('all-MiniLM-L6-v2')
+        
     embedding = model.encode([text])
     faiss.normalize_L2(embedding)
     return embedding.astype('float32')
@@ -46,8 +61,12 @@ def search(query, top_k=5) -> dict:
         top_k (int): Number of top results
 
     Returns:
-        dict with 'scores' and 'indices'
+        dict with 'scores' and 'indices' arrays
     """
+    global index
+    if index is None:
+        load_index(INDEX_PATH)
+    
     if isinstance(query, str):
         query = text_to_embedding(query)
     
@@ -69,21 +88,29 @@ def search_assessments(query, top_k=5) -> pd.DataFrame:
     Returns:
         pd.DataFrame with Name, URL, and similarity
     """
-    query_embedding = text_to_embedding(query)
-    scores, indices = index.search(query_embedding, top_k)
-    results = data.iloc[indices[0]].copy()
-    results['similarity'] = scores[0]
+    global data
+    if data is None:
+        data = pd.read_csv(DATA_PATH)
+        
+    search_results = search(query, top_k)
+    results = data.iloc[search_results["indices"]].copy()
+    results['similarity'] = search_results["scores"]
     return results[['Name', 'URL', 'similarity']]
 
 
-def save(path: str):
+def save_index(path: str = INDEX_PATH):
     """
     Save the current FAISS index to disk.
     """
+    global index
+    if index is None:
+        raise ValueError("Index not initialized. Call init() first.")
+    
     faiss.write_index(index, path)
+    return True
 
 
-def load(path: str):
+def load_index(path: str = INDEX_PATH):
     """
     Load a FAISS index from disk.
     
@@ -91,12 +118,27 @@ def load(path: str):
         The loaded index
     """
     global index
-    index = faiss.read_index(path)
-    return index
+    try:
+        index = faiss.read_index(path)
+        return index
+    except Exception as e:
+        print(f"Error loading FAISS index: {e}")
+        return None
 
 
 def get_index():
     """
     Return the current in-memory FAISS index.
     """
+    global index
     return index
+
+
+def get_assessment_data():
+    """
+    Return the loaded assessment data.
+    """
+    global data
+    if data is None:
+        data = pd.read_csv(DATA_PATH)
+    return data

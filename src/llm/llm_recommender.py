@@ -3,7 +3,7 @@ LLM-enhanced recommender system for SHL assessments.
 Combines vector search results with LLM reranking and explanation generation.
 """
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 import numpy as np
 from .gemini_client import GeminiClient
 from ..embeddings.faiss_wrapper import FaissIndex  # Import your vector search class
@@ -14,18 +14,17 @@ class LLMRecommender:
     """
     
     def __init__(self, 
-                 assessment_data: List[Dict[str, Any]],
                  vector_index: FaissIndex,
                  api_key: Optional[str] = None):
         """
         Initialize the LLM recommender.
         
         Args:
-            assessment_data: List of assessment data dictionaries
             vector_index: Initialized vector index for semantic search
             api_key: Optional Gemini API key
         """
-        self.assessment_data = assessment_data
+        # Get assessment data directly from the vector index
+        self.assessment_data = vector_index.get_assessment_data()
         self.vector_index = vector_index
         self.llm_client = GeminiClient(api_key)
     
@@ -53,28 +52,49 @@ class LLMRecommender:
         vector_results = self.vector_index.search(job_description, k=top_k)
         
         # Get the actual assessment data for the retrieved indices
-        candidate_assessments = [self.assessment_data[idx] for idx in vector_results.indices]
+        candidate_assessments = []
+        for idx in vector_results.indices:
+            if 0 <= idx < len(self.assessment_data):  # Check index bounds
+                candidate_assessments.append(self.assessment_data[idx])
+        
+        # Early return if we couldn't find any candidates
+        if not candidate_assessments:
+            return []
+        
+        # Add vector similarity scores to candidate assessments
+        for i, assessment in enumerate(candidate_assessments):
+            if i < len(vector_results.scores):
+                assessment["vector_similarity"] = float(vector_results.scores[i])
         
         # Step 3: Apply LLM reranking if requested
         if rerank:
+            # Add description if missing (required for reranking)
+            for assessment in candidate_assessments:
+                if "description" not in assessment:
+                    assessment["description"] = f"Assessment for {assessment.get('name', '')}"
+                
             reranked_assessments = self.llm_client.rerank_assessments(
                 job_requirements, 
                 candidate_assessments,
                 top_k=final_results
             )
         else:
-            # Use vector search ranking
-            reranked_assessments = candidate_assessments[:final_results]
+            # Use vector search ranking - take top results based on vector similarity
+            reranked_assessments = sorted(
+                candidate_assessments, 
+                key=lambda x: x.get("vector_similarity", 0), 
+                reverse=True
+            )[:final_results]
         
         # Step 4: Generate explanations for each recommendation
         recommendations = []
         for assessment in reranked_assessments:
-            explanation = self.llm_client.generate_explanation(job_description, assessment)
+            # Only generate explanations if not already present
+            if "explanation" not in assessment:
+                explanation = self.llm_client.generate_explanation(job_description, assessment)
+                assessment["explanation"] = explanation
             
-            recommendations.append({
-                **assessment,  # Include all assessment details
-                "explanation": explanation
-            })
+            recommendations.append(assessment)
         
         return recommendations
     

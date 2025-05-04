@@ -4,9 +4,12 @@ This module handles all interactions with the Gemini API.
 """
 
 import os
-from typing import List, Dict, Any, Optional
+import json
+import re
+from typing import List, Dict, Any, Optional, Union
 import google.generativeai as genai
 from dotenv import load_dotenv
+from .config import LLM_CONFIG, PROMPT_TEMPLATES
 
 # Load environment variables
 load_dotenv()
@@ -30,8 +33,57 @@ class GeminiClient:
         # Configure the Gemini API
         genai.configure(api_key=self.api_key)
         
-        # Default model
-        self.model = genai.GenerativeModel('gemini-1.5-pro')
+        # Default model and configuration
+        self.model_name = LLM_CONFIG.get("model", "gemini-1.5-pro")
+        self.temperature = LLM_CONFIG.get("temperature", 0.2)
+        self.max_output_tokens = LLM_CONFIG.get("max_output_tokens", 1024)
+        
+        # Initialize the model
+        self.model = genai.GenerativeModel(
+            self.model_name,
+            generation_config={
+                "temperature": self.temperature,
+                "max_output_tokens": self.max_output_tokens,
+            }
+        )
+    
+    def _parse_json_from_response(self, text: str) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
+        """
+        Parse JSON from the LLM response text, handling various formats.
+        
+        Args:
+            text: The text response from the LLM
+            
+        Returns:
+            Parsed JSON as dict or list
+        """
+        # Strip markdown code blocks if present
+        text = re.sub(r'```json\s*', '', text)
+        text = re.sub(r'```', '', text)
+        
+        # Try to parse the JSON
+        try:
+            return json.loads(text.strip())
+        except json.JSONDecodeError:
+            # Try to find JSON-like object in text
+            match = re.search(r'\{.*\}', text, re.DOTALL)
+            if match:
+                try:
+                    return json.loads(match.group(0))
+                except:
+                    pass
+            
+            # Try to find JSON array in text
+            match = re.search(r'\[.*\]', text, re.DOTALL)
+            if match:
+                try:
+                    return json.loads(match.group(0))
+                except:
+                    pass
+            
+            # Return empty dict as fallback
+            print(f"Could not parse JSON from response: {text[:100]}...")
+            return {}
     
     def extract_job_requirements(self, job_description: str) -> Dict[str, Any]:
         """
@@ -43,34 +95,39 @@ class GeminiClient:
         Returns:
             A dictionary containing structured job requirements.
         """
-        prompt = f"""
-        Extract key job requirements and skills from the following job description.
-        Format the output as JSON with these categories:
-        - technical_skills: List of technical skills required
-        - soft_skills: List of soft skills mentioned
-        - experience_level: Entry/Mid/Senior
-        - key_responsibilities: List of main job responsibilities
-        - required_competencies: List of competencies that could be assessed
+        prompt = PROMPT_TEMPLATES["extract_requirements"].format(
+            job_description=job_description
+        )
         
-        Job Description:
-        {job_description}
-        """
-        
-        response = self.model.generate_content(prompt)
-        
-        # Parse the response - assuming it returns JSON-formatted text
-        # In a production environment, add more robust parsing and error handling
         try:
-            # This is a simplification - in reality you'll need to parse the text response
-            # The actual implementation will depend on Gemini's response format
-            return response.text
+            response = self.model.generate_content(prompt)
+            parsed_response = self._parse_json_from_response(response.text)
+            
+            # Ensure the response has the expected structure
+            expected_keys = [
+                "technical_skills", "soft_skills", "experience_level",
+                "key_responsibilities", "required_competencies"
+            ]
+            
+            for key in expected_keys:
+                if key not in parsed_response:
+                    parsed_response[key] = []
+            
+            return parsed_response
         except Exception as e:
-            print(f"Error parsing Gemini response: {e}")
-            return {"error": str(e)}
+            print(f"Error extracting job requirements: {e}")
+            # Return a basic structure if there's an error
+            return {
+                "technical_skills": [],
+                "soft_skills": [],
+                "experience_level": "Not determined",
+                "key_responsibilities": [],
+                "required_competencies": []
+            }
     
     def rerank_assessments(self, job_requirements: Dict[str, Any], 
-                          candidate_assessments: List[Dict[str, Any]],
-                          top_k: int = 3) -> List[Dict[str, Any]]:
+                         candidate_assessments: List[Dict[str, Any]],
+                         top_k: int = 3) -> List[Dict[str, Any]]:
         """
         Rerank candidate assessments based on how well they match job requirements.
         
@@ -82,55 +139,66 @@ class GeminiClient:
         Returns:
             List of reranked assessments with relevance scores
         """
-        # Prepare a prompt that asks Gemini to evaluate and rank assessments
-        assessments_text = "\n\n".join([
-            f"Assessment {i+1}:\nName: {assessment.get('name')}\n"
-            f"Description: {assessment.get('description')}\n"
-            f"Type: {assessment.get('type')}\n"
-            f"Duration: {assessment.get('duration')}"
-            for i, assessment in enumerate(candidate_assessments)
-        ])
+        # Format job requirements for the prompt
+        job_req_text = json.dumps(job_requirements, indent=2)
         
-        prompt = f"""
-        Given these job requirements:
-        {job_requirements}
+        # Format assessments for the prompt
+        assessments_text = ""
+        for i, assessment in enumerate(candidate_assessments):
+            assessments_text += f"""
+Assessment {i+1}:
+Name: {assessment.get('name', '')}
+Description: {assessment.get('description', 'No description available')}
+Type: {assessment.get('test_types', '')}
+Duration: {assessment.get('duration', '')} minutes
+Remote Testing: {assessment.get('remote_testing', '')}
+Adaptive Testing: {assessment.get('adaptive_support', '')}
+
+"""
         
-        And these candidate assessments:
-        {assessments_text}
+        # Use the template from config
+        prompt = PROMPT_TEMPLATES["rerank_assessments"].format(
+            job_requirements=job_req_text,
+            assessments_text=assessments_text
+        )
         
-        Rank the assessments by how well they match the job requirements.
-        For each assessment, provide:
-        1. A relevance score from 0-100
-        2. A brief explanation of why it matches or doesn't match
-        3. Which job requirements it addresses
-        
-        Format your response as a JSON array with objects containing:
-        - assessment_index: The index of the assessment (1-based)
-        - relevance_score: Numerical score 0-100
-        - explanation: Brief explanation
-        - matched_requirements: List of matched requirements
-        
-        Sort the assessments by relevance_score in descending order.
-        """
-        
-        response = self.model.generate_content(prompt)
-        
-        # In a production environment, add more robust parsing and error handling
         try:
-            # This is a simplification - you'll need to parse the JSON response
-            parsed_response = response.text
+            response = self.model.generate_content(prompt)
+            parsed_response = self._parse_json_from_response(response.text)
             
-            # Process the response to return the reranked assessments
-            # This is a placeholder - actual implementation will depend on response format
+            # If parsing returns a dict instead of a list, check for results key
+            if isinstance(parsed_response, dict):
+                parsed_response = parsed_response.get("results", [])
+            
+            # If we still don't have a list, return an empty list
+            if not isinstance(parsed_response, list):
+                parsed_response = []
+            
+            # Merge the original assessment data with the reranking information
             reranked_assessments = []
+            for item in parsed_response:
+                if not isinstance(item, dict):
+                    continue
+                    
+                assessment_idx = item.get("assessment_index", 0)
+                # Adjust for 1-based indexing in the prompt
+                if assessment_idx > 0 and assessment_idx <= len(candidate_assessments):
+                    assessment = candidate_assessments[assessment_idx - 1].copy()
+                    assessment.update({
+                        "relevance_score": item.get("relevance_score", 0),
+                        "explanation": item.get("explanation", ""),
+                        "matched_requirements": item.get("matched_requirements", [])
+                    })
+                    reranked_assessments.append(assessment)
             
-            # Actual implementation would parse the JSON and rerank based on scores
-            # For now, we'll return a basic structure as an example
-            
+            # Sort by relevance score and take top_k
+            reranked_assessments.sort(key=lambda x: x.get("relevance_score", 0), reverse=True)
             return reranked_assessments[:top_k]
+        
         except Exception as e:
             print(f"Error reranking assessments: {e}")
-            return candidate_assessments[:top_k]  # Fallback to original ranking
+            # Fallback to returning original assessments in original order
+            return candidate_assessments[:top_k]
     
     def generate_explanation(self, job_description: str, assessment: Dict[str, Any]) -> str:
         """
@@ -143,20 +211,20 @@ class GeminiClient:
         Returns:
             A natural language explanation
         """
-        prompt = f"""
-        Given this job description:
-        {job_description}
+        # Use the template from config
+        prompt = PROMPT_TEMPLATES["generate_explanation"].format(
+            job_description=job_description,
+            assessment_name=assessment.get("name", ""),
+            assessment_description=assessment.get("description", "No description available"),
+            assessment_type=assessment.get("test_types", ""),
+            assessment_duration=assessment.get("duration", "")
+        )
         
-        And this assessment:
-        Name: {assessment.get('name')}
-        Description: {assessment.get('description')}
-        Type: {assessment.get('type')}
-        Duration: {assessment.get('duration')}
-        
-        Explain in 2-3 sentences why this assessment would be appropriate for evaluating 
-        candidates for this position. Focus on how the assessment measures skills and 
-        competencies required for the job.
-        """
-        
-        response = self.model.generate_content(prompt)
-        return response.text
+        try:
+            response = self.model.generate_content(prompt)
+            # No need to parse JSON for this one - we want the raw text
+            explanation = response.text.strip()
+            return explanation
+        except Exception as e:
+            print(f"Error generating explanation: {e}")
+            return "This assessment matches key requirements in the job description."
