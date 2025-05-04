@@ -1,0 +1,25 @@
+Name,URL,Duration (mins),Remote Testing Support,Adaptive/IRT Support,Test Types
+Account Manager Solution,https://www.shl.com/products/product-catalog/view/account-manager-solution/,49,Yes,Yes,"C, P, A, B"
+Administrative Professional - Short Form,https://www.shl.com/products/product-catalog/view/administrative-professional-short-form/,36,Yes,Yes,"A, K, P"
+Agency Manager Solution,https://www.shl.com/products/product-catalog/view/agency-manager-solution/,51,Yes,Yes,"A, B, P, S"
+Apprentice + 8.0 Job Focused Assessment,https://www.shl.com/products/product-catalog/view/apprentice-8-0-job-focused-assessment-4261/,30,Yes,No,"B, P"
+Apprentice 8.0 Job Focused Assessment,https://www.shl.com/products/product-catalog/view/apprentice-8-0-job-focused-assessment/,20,Yes,No,"B, P"
+Bank Administrative Assistant - Short Form,https://www.shl.com/products/product-catalog/view/bank-administrative-assistant-short-form/,35,Yes,No,"A, B, K, P"
+Bank Collections Agent - Short Form,https://www.shl.com/products/product-catalog/view/bank-collections-agent-short-form/,45,Yes,No,"A, B, P"
+Bank Operations Supervisor - Short Form,https://www.shl.com/products/product-catalog/view/bank-operations-supervisor-short-form/,45,Yes,Yes,"A, B, P, S"
+Bilingual Spanish Reservation Agent Solution,https://www.shl.com/products/product-catalog/view/bilingual-spanish-reservation-agent-solution/,43,Yes,Yes,"B, P, S, A"
+"Bookkeeping, Accounting, Auditing Clerk Short Form",https://www.shl.com/products/product-catalog/view/bookkeeping-accounting-auditing-clerk-short-form/,49,Yes,Yes,"P, S, K, B, A"
+Branch Manager - Short Form,https://www.shl.com/products/product-catalog/view/branch-manager-short-form/,50,Yes,No,"A, B, P"
+Cashier Solution,https://www.shl.com/products/product-catalog/view/cashier-solution/,28,Yes,Yes,"B, A, P"
+Global Skills Development Report,https://www.shl.com/products/product-catalog/view/global-skills-development-report/,N/A,Yes,No,"A, E, B, C, D, P"
+.NET Framework 4.5,https://www.shl.com/products/product-catalog/view/net-framework-4-5/,30,Yes,Yes,K
+.NET MVC (New),https://www.shl.com/products/product-catalog/view/net-mvc-new/,17,Yes,No,K
+.NET MVVM (New),https://www.shl.com/products/product-catalog/view/net-mvvm-new/,5,Yes,No,K
+.NET WCF (New),https://www.shl.com/products/product-catalog/view/net-wcf-new/,11,Yes,No,K
+.NET WPF (New),https://www.shl.com/products/product-catalog/view/net-wpf-new/,9,Yes,No,K
+.NET XAML (New),https://www.shl.com/products/product-catalog/view/net-xaml-new/,5,Yes,No,K
+Accounts Payable (New),https://www.shl.com/products/product-catalog/view/accounts-payable-new/,9,Yes,No,K
+Accounts Payable Simulation (New),https://www.shl.com/products/product-catalog/view/accounts-payable-simulation-new/,8,Yes,No,S
+Accounts Receivable (New),https://www.shl.com/products/product-catalog/view/accounts-receivable-new/,13,Yes,No,K
+Accounts Receivable Simulation (New),https://www.shl.com/products/product-catalog/view/accounts-receivable-simulation-new/,8,Yes,No,S
+ADO.NET (New),https://www.shl.com/products/product-catalog/view/ado-net-new/,10,Yes,No,K
