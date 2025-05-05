@@ -3,27 +3,44 @@ FastAPI application for the SHL Assessment Recommendation System.
 """
 
 import os
+import sys
 from typing import Dict, List, Any, Optional
+
+# Add the parent directory to the Python path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from fastapi import FastAPI, HTTPException, Body
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import uvicorn
 from fastapi.middleware.cors import CORSMiddleware
 
-# Import our components
-from src.embeddings.faiss_wrapper import FaissIndex
-from src.llm.llm_recommender import LLMRecommender
-
 # Load environment variables
 load_dotenv()
 
 # Define paths
 BASE_PATH = os.getenv("BASE_PATH", "C:/Users/devanshi/SHL-Assessment-Recommendation-System_Devanshi-Singh")
-INDEX_PATH = f"{BASE_PATH}/data/embeddings/faiss_index"
+# Update path to match your directory structure - pointing to src/data/embeddings instead of data/embeddings
+INDEX_PATH = f"{BASE_PATH}/src/data/embeddings/faiss_index"
+
+# Import our components
+from src.embeddings.faiss_wrapper import FaissIndex
+from src.llm.llm_recommender import LLMRecommender
+
+print(f"Looking for FAISS index at: {INDEX_PATH}")
+print(f"Checking if path exists: {os.path.exists(INDEX_PATH)}")
 
 # Initialize components
 vector_index = FaissIndex()
-vector_index.load(INDEX_PATH)
+try:
+    vector_index.load(INDEX_PATH)
+    print("Successfully loaded FAISS index")
+except Exception as e:
+    print(f"Error loading FAISS index: {str(e)}")
+    print("Attempting to create directories if they don't exist...")
+    os.makedirs(os.path.dirname(INDEX_PATH), exist_ok=True)
+    print(f"You need to generate and save a FAISS index to: {INDEX_PATH}")
+    
 recommender = LLMRecommender(vector_index=vector_index)
 
 # Define request and response models
