@@ -1,10 +1,13 @@
+pip>=23.1.2
+setuptools>=68.0
+wheel
 fastapi>=0.115.2,<1.0
 uvicorn[standard]
 pydantic>=2.0.0
 sentence-transformers
 faiss-cpu
-numpy>=1.25.0
-pandas
+numpy==1.25.2
+pandas==1.5.3
 scikit-learn
 scipy>=1.10.1
 protobuf==4.21.5
