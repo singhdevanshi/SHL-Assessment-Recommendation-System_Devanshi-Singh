@@ -1,23 +1,12 @@
 """
 Main entry point for the SHL Assessment Recommendation System.
 """
+
 import os
 import sys
 import argparse
 import uvicorn
 import subprocess
-from dotenv import load_dotenv
-
-# Load environment variables from .env file
-load_dotenv()
-
-# Get Google API key for Gemini model
-api_key = os.getenv("GEMINI_API_KEY")
-if not api_key:
-    print("Warning: GEMINI_API_KEY not found in environment.")
-    api_key = input("Please enter your Google API key for Gemini 1.5 Pro: ")
-    # Set the API key as an environment variable so it's available to the application
-    os.environ["GEMINI_API_KEY"] = api_key
 
 # Add the project root to the Python path to make imports work properly
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
