@@ -200,29 +200,37 @@ Adaptive Testing: {assessment.get('adaptive_support', '')}
             # Fallback to returning original assessments in original order
             return candidate_assessments[:top_k]
     
-    def generate_explanation(self, job_description: str, assessment: Dict[str, Any]) -> str:
+    def generate_explanation(self, job_description: str, assessment: Dict[str, Any], job_requirements: Optional[Dict[str, Any]] = None) -> str:
         """
         Generate a natural language explanation of why an assessment is recommended.
-        
         Args:
             job_description: The original job description
             assessment: The assessment that was recommended
-            
+            job_requirements: Optional structured requirements extracted from the job description
         Returns:
             A natural language explanation
         """
-        # Use the template from config
-        prompt = PROMPT_TEMPLATES["generate_explanation"].format(
-            job_description=job_description,
-            assessment_name=assessment.get("name", ""),
-            assessment_description=assessment.get("description", "No description available"),
-            assessment_type=assessment.get("test_types", ""),
-            assessment_duration=assessment.get("duration", "")
-        )
-        
+        # Use job requirements if provided, otherwise fallback to job description
+        job_info = json.dumps(job_requirements, indent=2) if job_requirements else job_description
+        matched_reqs = assessment.get("matched_requirements", [])
+        matched_reqs_text = "\n- " + "\n- ".join(matched_reqs) if matched_reqs else "N/A"
+        prompt = f"""
+You are an AI assistant helping a recruiter understand why a specific assessment is a strong match for a job role.
+### Job Requirements:
+{job_info}
+### Assessment Details:
+Name: {assessment.get("name", "")}
+Type: {assessment.get("test_types", "")}
+Duration: {assessment.get("duration", "")} minutes
+Description: {assessment.get("description", "No description available")}
+### Matched Requirements:
+{matched_reqs_text}
+### Instruction:
+Based on the job requirements and the matched requirements, write a detailed explanation of why this assessment is suitable for the role. Use professional, recruiter-friendly language. Be specific and insightful.
+### Explanation:
+"""
         try:
             response = self.model.generate_content(prompt)
-            # No need to parse JSON for this one - we want the raw text
             explanation = response.text.strip()
             return explanation
         except Exception as e:
