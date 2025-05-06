@@ -4,10 +4,16 @@ import pandas as pd
 from sentence_transformers import SentenceTransformer
 
 # Define paths consistently
-BASE_PATH = 'C:/Users/devanshi/SHL-Assessment-Recommendation-System_Devanshi-Singh'
-DATA_PATH = f'{BASE_PATH}/data/processed/shl_product_catalog_ready_for_embedding.csv'
-EMBEDDINGS_PATH = f'{BASE_PATH}/data/embeddings/shl_name_embeddings.npy'
-INDEX_PATH = f'{BASE_PATH}/data/embeddings/faiss_index'
+import os
+
+# Base path is the root of the project
+BASE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+
+# Construct platform-independent paths
+DATA_PATH = os.path.join(BASE_PATH, 'data', 'processed', 'shl_product_catalog_ready_for_embedding.csv')
+EMBEDDINGS_PATH = os.path.join(BASE_PATH, 'data', 'embeddings', 'shl_name_embeddings.npy')
+INDEX_PATH = os.path.join(BASE_PATH, 'data', 'embeddings', 'faiss_index')
+
 
 # === Initialize variables ===
 data = None
