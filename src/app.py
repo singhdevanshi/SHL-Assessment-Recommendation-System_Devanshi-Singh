@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
 
-# Import our components
+# Import components
 from embeddings.faiss_wrapper import FaissIndex
 from llm.llm_recommender import LLMRecommender
 
