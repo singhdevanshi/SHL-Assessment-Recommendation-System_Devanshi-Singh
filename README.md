@@ -62,6 +62,7 @@ This will launch the interactive demo of the recommendation system in your brows
 2. **Recall@K**
 
 Achieved MAP@5: 0.95
+
 Achieved Recall@5: 0.20
 
 ## **Contact**
