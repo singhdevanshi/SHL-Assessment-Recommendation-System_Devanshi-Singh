@@ -3,3 +3,5 @@ numpy>=1.25.0
 scipy>=1.10.1
 fastapi>=0.115.2,<1.0
 protobuf==4.21.5
+uvicorn[standard]
+faiss-cpu
