@@ -19,7 +19,7 @@ if project_root not in sys.path:
 load_dotenv()
 
 # Define the API URL
-API_URL = os.getenv("API_URL", "http://localhost:8000")
+API_URL = os.getenv("API_URL", "https://shl-assessment-recommendation-system-z4vb.onrender.com")
 
 st.set_page_config(
     page_title="SHL Assessment Recommender",
