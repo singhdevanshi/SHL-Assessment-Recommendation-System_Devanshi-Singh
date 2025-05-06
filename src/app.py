@@ -194,3 +194,4 @@ def create_app():
             raise HTTPException(status_code=500, detail=f"Error retrieving assessments: {str(e)}")
     
     return app
+app = create_app()
