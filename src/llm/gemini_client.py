@@ -214,23 +214,50 @@ Adaptive Testing: {assessment.get('adaptive_support', '')}
         job_info = json.dumps(job_requirements, indent=2) if job_requirements else job_description
         matched_reqs = assessment.get("matched_requirements", [])
         matched_reqs_text = "\n- " + "\n- ".join(matched_reqs) if matched_reqs else "N/A"
+        
+        # Enhanced prompt with more detailed instructions and examples
         prompt = f"""
-You are an AI assistant helping a recruiter understand why a specific assessment is a strong match for a job role.
+You are an expert recruitment consultant specializing in assessment selection.
+Your task is to explain precisely how a specific assessment tool aligns with job requirements.
+
 ### Job Requirements:
 {job_info}
+
 ### Assessment Details:
 Name: {assessment.get("name", "")}
 Type: {assessment.get("test_types", "")}
 Duration: {assessment.get("duration", "")} minutes
 Description: {assessment.get("description", "No description available")}
+
 ### Matched Requirements:
 {matched_reqs_text}
+
 ### Instruction:
-Based on the job requirements and the matched requirements, write a detailed explanation of why this assessment is suitable for the role. Use professional, recruiter-friendly language. Be specific and insightful.
+Write a detailed, concrete explanation (4-6 sentences) of why this specific assessment is an excellent match for this role. 
+Your explanation must:
+1. Name 2-3 specific skills measured by this assessment that directly relate to job requirements
+2. Explain how these skills connect to actual job responsibilities
+3. Mention a business benefit of using this assessment (e.g., reduced turnover, better performance)
+4. Use HR/recruitment professional language but avoid generic statements
+
+Avoid vague phrases like "this assessment evaluates candidate abilities" or "measures important skills."
+Instead, be specific about WHICH abilities and HOW they relate to the job.
+
 ### Explanation:
 """
+    
+        # Increase temperature slightly for more varied responses
+        generation_config = {
+            "temperature": 0.4,  # Higher than default to avoid generic responses
+            "max_output_tokens": 1024
+        }
+        
         try:
-            response = self.model.generate_content(prompt)
+            # Use custom generation config just for this call
+            response = self.model.generate_content(
+                prompt,
+                generation_config=generation_config
+            )
             explanation = response.text.strip()
             return explanation
         except Exception as e:
