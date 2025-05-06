@@ -11,6 +11,7 @@ from fastapi import FastAPI, HTTPException, Body
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
+sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
 # Import components
 from embeddings.faiss_wrapper import FaissIndex
