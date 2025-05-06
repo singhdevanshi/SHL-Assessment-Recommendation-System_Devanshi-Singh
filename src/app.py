@@ -1,10 +1,6 @@
-"""
-FastAPI application factory for the SHL Assessment Recommendation System.
-"""
-
 import os
 import sys
-from typing import Dict, List, Any, Optional
+from typing import List, Dict, Any, Optional
 import logging
 
 from fastapi import FastAPI, HTTPException, Body
@@ -54,25 +50,21 @@ def create_app():
     
     # Define request and response models
     class JobDescriptionRequest(BaseModel):
-        job_description: str
+        query: str
         top_k: Optional[int] = 10
         rerank: Optional[bool] = True
         final_results: Optional[int] = 3
     
     class AssessmentResponse(BaseModel):
-        name: str
         url: str
-        duration: Optional[float] = None
-        remote_testing: Optional[str] = None
-        adaptive_support: Optional[str] = None
-        test_types: Optional[str] = None
-        explanation: Optional[str] = None
-        relevance_score: Optional[float] = None
-        matched_requirements: Optional[List[str]] = None
+        adaptive_support: str
+        description: str
+        duration: int
+        remote_support: str
+        test_type: List[str]
     
     class RecommendationResponse(BaseModel):
-        recommendations: List[AssessmentResponse]
-        job_requirements: Dict[str, Any]
+        recommended_assessments: List[AssessmentResponse]
     
     # Create FastAPI app
     app = FastAPI(
@@ -98,48 +90,44 @@ def create_app():
     @app.post("/recommend")
     async def recommend_assessments(request: JobDescriptionRequest):
         """
-        Recommend SHL assessments based on a job description.
+        Recommend SHL assessments based on a job description or query.
         
         Args:
-            job_description: The job description text
+            query: The job description or query text
             top_k: Number of initial candidates to retrieve from vector search
             rerank: Whether to apply LLM reranking
             final_results: Number of final results to return
         
         Returns:
-            List of recommended assessments with explanations
+            List of recommended assessments
         """
         try:
             # Extract job requirements first
             job_requirements = recommender.llm_client.extract_job_requirements(
-                request.job_description
+                request.query
             )
             
             # Get recommendations
             recommendations = recommender.recommend(
-                job_description=request.job_description,
+                job_description=request.query,
                 top_k=request.top_k,
                 rerank=request.rerank,
                 final_results=request.final_results
             )
             
-            # Convert to response model
+            # Prepare response in the exact required format
             response = RecommendationResponse(
-                recommendations=[
+                recommended_assessments=[
                     AssessmentResponse(
-                        name=rec.get("name", ""),
                         url=rec.get("url", ""),
-                        duration=rec.get("duration"),
-                        remote_testing=rec.get("remote_testing"),
-                        adaptive_support=rec.get("adaptive_support"),
-                        test_types=rec.get("test_types"),
-                        explanation=rec.get("explanation", ""),
-                        relevance_score=rec.get("relevance_score"),
-                        matched_requirements=rec.get("matched_requirements", [])
+                        adaptive_support=rec.get("adaptive_support", "No"),
+                        description=rec.get("description", ""),
+                        duration=rec.get("duration", 0),
+                        remote_support=rec.get("remote_support", "No"),
+                        test_type=rec.get("test_type", [])
                     )
                     for rec in recommendations
-                ],
-                job_requirements=job_requirements
+                ]
             )
             
             return response

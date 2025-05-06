@@ -2,20 +2,15 @@ import faiss
 import numpy as np
 import pandas as pd
 from sentence_transformers import SentenceTransformer
-
-# Define paths consistently
 import os
 
-# Base path is the root of the project
+# Define paths consistently
 BASE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-
-# Construct platform-independent paths
 DATA_PATH = os.path.join(BASE_PATH, 'data', 'processed', 'shl_product_catalog_ready_for_embedding.csv')
 EMBEDDINGS_PATH = os.path.join(BASE_PATH, 'data', 'embeddings', 'shl_name_embeddings.npy')
-INDEX_PATH = os.path.join(BASE_PATH, 'data', 'embeddings', 'faiss_index')
+INDEX_PATH = os.path.join(BASE_PATH, 'data', 'embeddings', 'faiss_index.faiss')
 
-
-# === Initialize variables ===
+# Initialize variables
 data = None
 embeddings = None
 index = None
@@ -44,7 +39,6 @@ def init():
     
     return True
 
-
 def text_to_embedding(text: str) -> np.ndarray:
     """
     Converts a text query to a normalized embedding vector.
@@ -54,9 +48,8 @@ def text_to_embedding(text: str) -> np.ndarray:
         model = SentenceTransformer('all-MiniLM-L6-v2')
         
     embedding = model.encode([text])
-    faiss.normalize_L2(embedding)
+    faiss.normalize_L2(embedding)  # Normalize to match FAISS index
     return embedding.astype('float32')
-
 
 def search(query, top_k=5) -> dict:
     """
@@ -76,12 +69,18 @@ def search(query, top_k=5) -> dict:
     if isinstance(query, str):
         query = text_to_embedding(query)
     
+    # Search the FAISS index
     scores, indices = index.search(query, top_k)
+    
+    # Debugging: Print scores and indices for inspection
+    print(f"Query: {query}")
+    print(f"Scores: {scores}")
+    print(f"Indices: {indices}")
+    
     return {
         "scores": scores[0],
         "indices": indices[0]
     }
-
 
 def search_assessments(query, top_k=5) -> pd.DataFrame:
     """
@@ -99,10 +98,18 @@ def search_assessments(query, top_k=5) -> pd.DataFrame:
         data = pd.read_csv(DATA_PATH)
         
     search_results = search(query, top_k)
+    
+    # Debugging: Print the results for inspection
+    print(f"Search results: {search_results}")
+    
+    # Get the corresponding rows from data and add similarity scores
     results = data.iloc[search_results["indices"]].copy()
     results['similarity'] = search_results["scores"]
+    
+    # Debugging: Print the final DataFrame with similarities
+    print(f"Results with similarity: {results[['Name', 'URL', 'similarity']]}")
+    
     return results[['Name', 'URL', 'similarity']]
-
 
 def save_index(path: str = INDEX_PATH):
     """
@@ -114,7 +121,6 @@ def save_index(path: str = INDEX_PATH):
     
     faiss.write_index(index, path)
     return True
-
 
 def load_index(path: str = INDEX_PATH):
     """
@@ -131,14 +137,12 @@ def load_index(path: str = INDEX_PATH):
         print(f"Error loading FAISS index: {e}")
         return None
 
-
 def get_index():
     """
     Return the current in-memory FAISS index.
     """
     global index
     return index
-
 
 def get_assessment_data():
     """
