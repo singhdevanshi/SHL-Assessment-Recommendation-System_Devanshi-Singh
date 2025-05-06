@@ -1,70 +1,63 @@
+"""
+FastAPI application factory for the SHL Assessment Recommendation System.
+"""
+
 import os
+import sys
 from typing import Dict, List, Any, Optional
+import logging
 
 from fastapi import FastAPI, HTTPException, Body
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
 
-# Import components
+# Import our components
 from embeddings.faiss_wrapper import FaissIndex
-from src.llm.llm_recommender import LLMRecommender
+from llm.llm_recommender import LLMRecommender
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(levelname)s] %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 def create_app():
-    """Create and configure the FastAPI application."""
-
+    """Create and configure the FastAPI application"""
+    
     # Load environment variables
     load_dotenv()
-
-    # Get Gemini API key
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        raise RuntimeError("Gemini API key not found in environment (.env file).")
-
+    
     # Define paths
     BASE_PATH = os.getenv("BASE_PATH", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     INDEX_PATH = os.path.join(BASE_PATH, "data", "embeddings", "faiss_index.faiss")
-    METADATA_PATH = os.path.join(BASE_PATH, "data", "assessments.json")
-
-    print(f"[INFO] Looking for FAISS index at: {INDEX_PATH}")
-    print(f"[INFO] Looking for assessment metadata at: {METADATA_PATH}")
-    print(f"[INFO] Index path exists: {os.path.exists(INDEX_PATH)}")
-    print(f"[INFO] Metadata path exists: {os.path.exists(METADATA_PATH)}")
-
-    # Initialize the FAISS index
-    vector_index = FaissIndex()
     
-    # Try to load the FAISS index
+    logger.info(f"Looking for FAISS index at: {INDEX_PATH}")
+    logger.info(f"Index path exists: {os.path.exists(INDEX_PATH)}")
+    
+    # Initialize components
     index_loaded = False
-    if os.path.exists(INDEX_PATH):
-        try:
-            # Load the index and metadata
-            index_loaded = vector_index.load(INDEX_PATH, METADATA_PATH)
-            print(f"[INFO] FAISS index loaded: {index_loaded}")
-            print(f"[INFO] Number of assessments in index: {len(vector_index.assessment_data)}")
-        except Exception as e:
-            print(f"[ERROR] Failed to load FAISS index: {str(e)}")
+    vector_index = FaissIndex()
+    try:
+        vector_index.load(INDEX_PATH)
+        logger.info("Successfully loaded FAISS index")
+        index_loaded = True
+    except Exception as e:
+        logger.error(f"Failed to load FAISS index: {str(e)}")
+        logger.info(f"Please generate and save a FAISS index to: {INDEX_PATH}")
+        logger.info("The system will use fallback keyword search instead of vector search.")
     
-    # If the index failed to load, ensure the directory exists
-    if not index_loaded:
-        os.makedirs(os.path.dirname(INDEX_PATH), exist_ok=True)
-        print(f"[INFO] Please generate and save a FAISS index to: {INDEX_PATH}")
-        print(f"[INFO] The system will use fallback keyword search instead of vector search.")
-
-    # Initialize LLMRecommender with the Gemini API key and vector index
-    recommender = LLMRecommender(api_key=api_key, assessments_path=METADATA_PATH, vector_index=vector_index if index_loaded else None)
+    # Initialize LLM recommender with whatever index is available
+    recommender = LLMRecommender(vector_index=vector_index if index_loaded else None)
     
-    # Store the assessment data for direct access
-    assessment_data = recommender.assessment_data
-    print(f"[INFO] LLMRecommender initialized with {len(assessment_data)} assessments")
-
-    # Pydantic models
+    # Define request and response models
     class JobDescriptionRequest(BaseModel):
         job_description: str
         top_k: Optional[int] = 10
         rerank: Optional[bool] = True
         final_results: Optional[int] = 3
-
+    
     class AssessmentResponse(BaseModel):
         name: str
         url: str
@@ -75,43 +68,51 @@ def create_app():
         explanation: Optional[str] = None
         relevance_score: Optional[float] = None
         matched_requirements: Optional[List[str]] = None
-
+    
     class RecommendationResponse(BaseModel):
         recommendations: List[AssessmentResponse]
         job_requirements: Dict[str, Any]
-
+    
     # Create FastAPI app
     app = FastAPI(
         title="SHL Assessment Recommender API",
         description="API for recommending SHL assessments based on job descriptions",
         version="1.0.0"
     )
-
-    # Enable CORS
+    
+    # Add CORS middleware
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=["*"],  # Allows all origins
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["*"],  # Allows all methods
+        allow_headers=["*"],  # Allows all headers
     )
-
-    # Health check
+    
     @app.get("/")
     async def root():
-        return {
-            "status": "OK", 
-            "message": "SHL Assessment Recommender API is running",
-            "assessments_count": len(assessment_data),
-            "vector_search_enabled": index_loaded
-        }
-
-    # Recommendation endpoint
+        """Health check endpoint."""
+        return {"status": "OK", "message": "SHL Assessment Recommender API is running"}
+    
     @app.post("/recommend")
     async def recommend_assessments(request: JobDescriptionRequest):
+        """
+        Recommend SHL assessments based on a job description.
+        
+        Args:
+            job_description: The job description text
+            top_k: Number of initial candidates to retrieve from vector search
+            rerank: Whether to apply LLM reranking
+            final_results: Number of final results to return
+        
+        Returns:
+            List of recommended assessments with explanations
+        """
         try:
-            # Extract job requirements
-            job_requirements = recommender.extract_job_requirements(request.job_description)
+            # Extract job requirements first
+            job_requirements = recommender.llm_client.extract_job_requirements(
+                request.job_description
+            )
             
             # Get recommendations
             recommendations = recommender.recommend(
@@ -121,54 +122,75 @@ def create_app():
                 final_results=request.final_results
             )
             
-            if not recommendations:
-                print("[WARNING] No recommendations found. Check your assessment data.")
-                
-            # Format response
-            return RecommendationResponse(
+            # Convert to response model
+            response = RecommendationResponse(
                 recommendations=[
                     AssessmentResponse(
-                        name=r.get("name", ""),
-                        url=r.get("url", "https://example.com/assessment"),  # Default URL if none provided
-                        duration=r.get("duration"),
-                        remote_testing=r.get("remote_testing"),
-                        adaptive_support=r.get("adaptive_support"),
-                        test_types=r.get("test_types"),
-                        explanation=r.get("explanation", ""),
-                        relevance_score=r.get("relevance_score"),
-                        matched_requirements=r.get("matched_requirements", [])
-                    ) for r in recommendations
+                        name=rec.get("name", ""),
+                        url=rec.get("url", ""),
+                        duration=rec.get("duration"),
+                        remote_testing=rec.get("remote_testing"),
+                        adaptive_support=rec.get("adaptive_support"),
+                        test_types=rec.get("test_types"),
+                        explanation=rec.get("explanation", ""),
+                        relevance_score=rec.get("relevance_score"),
+                        matched_requirements=rec.get("matched_requirements", [])
+                    )
+                    for rec in recommendations
                 ],
                 job_requirements=job_requirements
             )
-
+            
+            return response
+        
         except Exception as e:
-            print(f"[ERROR] Error generating recommendations: {str(e)}")
+            logger.error(f"Error generating recommendations: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Error generating recommendations: {str(e)}")
-
-    # Requirement extraction endpoint
+    
     @app.post("/extract-requirements")
     async def extract_requirements(job_description: str = Body(..., embed=True)):
+        """
+        Extract structured job requirements from a job description.
+        
+        Args:
+            job_description: The job description text
+        
+        Returns:
+            Structured job requirements
+        """
         try:
-            return recommender.extract_job_requirements(job_description)
+            job_requirements = recommender.llm_client.extract_job_requirements(job_description)
+            return job_requirements
+        
         except Exception as e:
-            print(f"[ERROR] Error extracting requirements: {str(e)}")
+            logger.error(f"Error extracting requirements: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Error extracting requirements: {str(e)}")
-
-    # All assessments (raw access)
+    
     @app.get("/assessments")
     async def get_assessments(limit: int = 100, offset: int = 0):
+        """
+        Get a list of available assessments.
+        
+        Args:
+            limit: Maximum number of assessments to return
+            offset: Number of assessments to skip
+        
+        Returns:
+            List of assessments
+        """
         try:
-            # Use the stored assessment data
-            paginated = assessment_data[offset:offset + limit]
+            all_assessments = recommender.assessment_data
+            paginated = all_assessments[offset:offset+limit]
+            
             return {
-                "total": len(assessment_data),
+                "total": len(all_assessments),
                 "limit": limit,
                 "offset": offset,
                 "assessments": paginated
             }
+        
         except Exception as e:
-            print(f"[ERROR] Error retrieving assessments: {str(e)}")
+            logger.error(f"Error retrieving assessments: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Error retrieving assessments: {str(e)}")
-
+    
     return app

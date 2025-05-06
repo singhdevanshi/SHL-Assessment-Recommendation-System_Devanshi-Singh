@@ -1,179 +1,121 @@
 """
-FAISS vector index wrapper for semantic similarity search.
+Wrapper for the FAISS module to provide a consistent interface for the LLM recommender.
+This will adapt the existing faiss_utils.py functionality to the FaissIndex class expected
+by the LLM recommender.
 """
-import os
-import json
-import numpy as np
-import faiss
-from typing import List, Dict, Any, Optional, Tuple
 
-class FaissIndex:
-    """Wrapper for FAISS index to perform semantic similarity search on assessment embeddings."""
+import numpy as np
+from typing import List, Dict, Any, Union, Optional
+import importlib
+from dataclasses import dataclass
+
+# Import the existing faiss module functions
+from . import faiss_utils
+
+@dataclass
+class SearchResult:
+    """
+    Standard search result structure to ensure consistent interface.
+    """
+    indices: List[int]
+    scores: List[float]
+
+class FaissIndexWrapper:
+    """
+    Wrapper class for FAISS functionality that conforms to the interface
+    expected by the LLM recommender.
+    """
     
     def __init__(self):
-        """Initialize an empty FAISS index."""
-        self.index = None
-        self.dimension = None
-        self.assessment_data = []
-        self.is_loaded = False
+        """Initialize the wrapper."""
+        # Initialize the faiss_utils module
+        faiss_utils.init()
+        
+        # Store internal state
+        self.is_loaded = True
     
-    def load(self, index_path: str, metadata_path: Optional[str] = None) -> bool:
+    def load(self, path: str) -> bool:
         """
-        Load a FAISS index from disk along with assessment metadata.
+        Load the FAISS index from disk.
         
         Args:
-            index_path: Path to the FAISS index (.faiss file)
-            metadata_path: Path to assessment metadata (.json file), if None will try to infer
+            path: Path to the index file
             
         Returns:
             True if loaded successfully, False otherwise
         """
         try:
-            # Load FAISS index
-            self.index = faiss.read_index(index_path)
-            self.dimension = self.index.d
+            faiss_utils.load_index(path)
             self.is_loaded = True
-            
-            # Try to load metadata if path is provided or can be inferred
-            if metadata_path is None:
-                # Try to infer metadata path from index path
-                base_dir = os.path.dirname(index_path)
-                possible_paths = [
-                    os.path.join(base_dir, "assessment_metadata.json"),
-                    os.path.join(base_dir, "assessments.json"),
-                    os.path.join(os.path.dirname(base_dir), "assessments", "assessments.json"),
-                    os.path.join(os.path.dirname(os.path.dirname(base_dir)), "data", "assessments.json")
-                ]
-                
-                for path in possible_paths:
-                    if os.path.exists(path):
-                        metadata_path = path
-                        break
-            
-            # Load assessment metadata if available
-            if metadata_path and os.path.exists(metadata_path):
-                try:
-                    with open(metadata_path, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        
-                    # Handle different possible formats
-                    if isinstance(data, list):
-                        self.assessment_data = data
-                    elif isinstance(data, dict) and "assessments" in data:
-                        self.assessment_data = data["assessments"]
-                    else:
-                        self.assessment_data = list(data.values()) if isinstance(data, dict) else []
-                        
-                    print(f"Loaded {len(self.assessment_data)} assessments from metadata")
-                    
-                    # Validate that we have the right number of assessments
-                    expected_count = self.index.ntotal
-                    if len(self.assessment_data) != expected_count:
-                        print(f"Warning: Number of assessments ({len(self.assessment_data)}) doesn't match index size ({expected_count})")
-                        
-                except Exception as e:
-                    print(f"Error loading assessment metadata: {e}")
-                    # Create empty metadata entries if loading fails
-                    self.assessment_data = [{"id": str(i), "name": f"Assessment {i}"} for i in range(self.index.ntotal)]
-            else:
-                print(f"No assessment metadata found at {metadata_path}")
-                # Create empty metadata entries
-                self.assessment_data = [{"id": str(i), "name": f"Assessment {i}"} for i in range(self.index.ntotal)]
-            
-            print(f"Successfully loaded FAISS index with {self.index.ntotal} vectors of dimension {self.dimension}")
             return True
-            
         except Exception as e:
             print(f"Error loading FAISS index: {e}")
-            self.index = None
             self.is_loaded = False
-            self.assessment_data = []
             return False
     
-    def search(self, query_vector: np.ndarray, k: int = 10) -> List[Dict[str, Any]]:
+    def search(self, query: Union[str, np.ndarray], k: int = 5) -> SearchResult:
         """
-        Search the index for the k nearest neighbors to the query vector.
+        Search the index for similar items.
         
         Args:
-            query_vector: Query embedding of shape (dimension,)
-            k: Number of nearest neighbors to return
+            query: Text query or embedding vector
+            k: Number of results to return
             
         Returns:
-            List of dictionaries with assessment data and distances
+            SearchResult object with indices and scores
         """
-        if not self.is_loaded or self.index is None:
-            print("Error: FAISS index not loaded")
-            return []
+        # Use the search function from faiss_utils
+        result = faiss_utils.search(query, k)
         
-        # Ensure query vector has the right shape and type
-        if len(query_vector.shape) == 1:
-            query_vector = query_vector.reshape(1, -1)  # Convert to 2D
-        
-        # Convert to float32 if needed
-        if query_vector.dtype != np.float32:
-            query_vector = query_vector.astype(np.float32)
-        
-        # Check dimension
-        if query_vector.shape[1] != self.dimension:
-            print(f"Error: Query vector dimension ({query_vector.shape[1]}) doesn't match index dimension ({self.dimension})")
-            return []
-        
-        # Limit k to the number of items in the index
-        k = min(k, self.index.ntotal)
-        
-        # Perform search
-        try:
-            distances, indices = self.index.search(query_vector, k)
-            
-            # Get the actual assessment data
-            results = []
-            for i, idx in enumerate(indices[0]):
-                if 0 <= idx < len(self.assessment_data):
-                    # Create a copy of the assessment data
-                    result = dict(self.assessment_data[idx])
-                    # Add the distance score
-                    result["vector_distance"] = float(distances[0][i])
-                    results.append(result)
-                else:
-                    print(f"Warning: Index {idx} out of range for assessment data")
-            
-            return results
-        except Exception as e:
-            print(f"Error during FAISS search: {e}")
-            return []
+        # Return in the expected format for LLMRecommender
+        return SearchResult(
+            indices=result["indices"].tolist(),  # Convert numpy array to list
+            scores=result["scores"].tolist()
+        )
     
-    def save(self, index_path: str, metadata_path: Optional[str] = None) -> bool:
+    def add(self, vectors: np.ndarray, ids: Optional[List[int]] = None) -> bool:
         """
-        Save the FAISS index and metadata to disk.
+        Add vectors to the index.
         
         Args:
-            index_path: Path to save the FAISS index
-            metadata_path: Path to save assessment metadata, if None will use default
+            vectors: Vectors to add
+            ids: Optional IDs for the vectors
             
         Returns:
-            True if saved successfully, False otherwise
+            True if successful
         """
-        if not self.is_loaded or self.index is None:
-            print("Error: No FAISS index to save")
-            return False
-        
-        try:
-            # Create directory if it doesn't exist
-            os.makedirs(os.path.dirname(index_path), exist_ok=True)
-            
-            # Save FAISS index
-            faiss.write_index(self.index, index_path)
-            
-            # Save metadata if available
-            if self.assessment_data and metadata_path:
-                os.makedirs(os.path.dirname(metadata_path), exist_ok=True)
-                with open(metadata_path, 'w', encoding='utf-8') as f:
-                    json.dump(self.assessment_data, f, indent=2)
-                print(f"Saved {len(self.assessment_data)} assessments to metadata")
-            
-            print(f"Successfully saved FAISS index with {self.index.ntotal} vectors")
+        index = faiss_utils.get_index()
+        if index is not None:
+            if ids is not None:
+                index.add_with_ids(vectors, np.array(ids))
+            else:
+                index.add(vectors)
             return True
-            
-        except Exception as e:
-            print(f"Error saving FAISS index: {e}")
-            return False
+        return False
+    
+    def get_assessment_data(self) -> List[Dict[str, Any]]:
+        """
+        Get assessment data in the format expected by LLMRecommender.
+        
+        Returns:
+            List of assessment data dictionaries
+        """
+        df = faiss_utils.get_assessment_data()
+        
+        # Convert DataFrame to list of dictionaries with lowercase keys
+        assessments = []
+        for _, row in df.iterrows():
+            assessment = {
+                "name": row.get("Name", ""),
+                "url": row.get("URL", ""),
+                "duration": row.get("Duration (mins)", 0),
+                "remote_testing": row.get("Remote Testing Support", ""),
+                "adaptive_support": row.get("Adaptive/IRT Support", ""),
+                "test_types": row.get("Test Types", "")
+            }
+            assessments.append(assessment)
+        
+        return assessments
+
+# Create an alias for backward compatibility
+FaissIndex = FaissIndexWrapper
