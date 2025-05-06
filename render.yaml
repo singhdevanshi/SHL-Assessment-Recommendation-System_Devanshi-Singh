@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: shl-recommender-api
+    env: python
+    buildCommand: |
+      pip install -r requirements.txt
+    startCommand: |
+      PYTHONPATH=src uvicorn src.app:app --host=0.0.0.0 --port=$PORT
+    envVars:
+      - key: PYTHONPATH
+        value: "src"  # Ensure src is included in the Python path
+    instances: 1
