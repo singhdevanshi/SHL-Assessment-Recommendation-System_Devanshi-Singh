@@ -40,7 +40,7 @@ This project implements an intelligent recommendation system designed to match j
    ```bash
    pip install -r requirements.txt
 
-4. **Run the application:*
+4. **Run the application:**
    ```bash
    streamlit run app.py
 
