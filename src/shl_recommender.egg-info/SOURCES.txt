@@ -1,0 +1,17 @@
+README.md
+setup.py
+src/api/__init__.py
+src/embeddings/__init__.py
+src/embeddings/faiss_index.py
+src/embeddings/faiss_search.py
+src/embeddings/faiss_utils.py
+src/embeddings/faiss_wrapper.py
+src/evaluation/__init__.py
+src/llm/__init__.py
+src/llm/config.py
+src/llm/gemini_client.py
+src/llm/llm_recommender.py
+src/shl_recommender.egg-info/PKG-INFO
+src/shl_recommender.egg-info/SOURCES.txt
+src/shl_recommender.egg-info/dependency_links.txt
+src/shl_recommender.egg-info/top_level.txt

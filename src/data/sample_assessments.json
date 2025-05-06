@@ -1,0 +1,44 @@
+[
+  {
+    "name": "Verbal Reasoning Test",
+    "description": "Measures the ability to understand and evaluate written information",
+    "url": "https://example.com/verbal",
+    "duration": 25,
+    "remote_testing": "Yes",
+    "adaptive_support": "No",
+    "test_types": "Verbal Reasoning",
+    "skills": [
+      "Reading Comprehension",
+      "Critical Thinking",
+      "Language Skills"
+    ]
+  },
+  {
+    "name": "Numerical Reasoning Test",
+    "description": "Assesses the ability to interpret and analyze numerical data",
+    "url": "https://example.com/numerical",
+    "duration": 30,
+    "remote_testing": "Yes",
+    "adaptive_support": "Yes",
+    "test_types": "Numerical Reasoning",
+    "skills": [
+      "Data Analysis",
+      "Mathematical Skills",
+      "Problem Solving"
+    ]
+  },
+  {
+    "name": "Logical Reasoning Test",
+    "description": "Evaluates logical thinking and problem-solving abilities",
+    "url": "https://example.com/logical",
+    "duration": 35,
+    "remote_testing": "Yes",
+    "adaptive_support": "No",
+    "test_types": "Logical Reasoning",
+    "skills": [
+      "Pattern Recognition",
+      "Deductive Reasoning",
+      "Critical Thinking"
+    ]
+  }
+]

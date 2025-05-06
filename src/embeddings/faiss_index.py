@@ -1,9 +1,8 @@
 import os
 import faiss
 import numpy as np
-import pandas as pd
 
-# Define paths consistently
+# Correct paths
 BASE_PATH = 'C:/Users/devanshi/SHL-Assessment-Recommendation-System_Devanshi-Singh'
 EMBEDDINGS_DIR = f'{BASE_PATH}/data/embeddings'
 
@@ -11,7 +10,12 @@ EMBEDDINGS_DIR = f'{BASE_PATH}/data/embeddings'
 os.makedirs(EMBEDDINGS_DIR, exist_ok=True)
 
 # Load your embeddings (assumed to be in a numpy array)
-embeddings = np.load(f'{EMBEDDINGS_DIR}/shl_name_embeddings.npy')
+embeddings_path = f'{EMBEDDINGS_DIR}/shl_name_embeddings.npy'
+
+if not os.path.exists(embeddings_path):
+    raise FileNotFoundError(f"Embeddings file not found at: {embeddings_path}")
+
+embeddings = np.load(embeddings_path)
 
 # Normalize embeddings for better performance (optional but recommended)
 embeddings = embeddings.astype('float32')
@@ -23,7 +27,7 @@ index = faiss.IndexFlatIP(dimension)  # Using inner product for cosine similarit
 index.add(embeddings)
 
 # Save the index to a .faiss file
-index_path = f'{EMBEDDINGS_DIR}/faiss_index'
+index_path = f'{EMBEDDINGS_DIR}/faiss_index.faiss'  # Make sure the .faiss extension is there
 faiss.write_index(index, index_path)
 print(f"FAISS index saved at '{index_path}'")
 

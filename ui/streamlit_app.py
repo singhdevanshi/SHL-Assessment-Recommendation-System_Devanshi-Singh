@@ -41,11 +41,11 @@ api_status = ""
 try:
     response = requests.get(f"{API_URL}/")
     if response.status_code == 200:
-        api_status = "✅ API is running"
+        api_status = "API is running"
     else:
-        api_status = f"⚠️ API returned status code {response.status_code}"
+        api_status = f"API returned status code {response.status_code}"
 except Exception as e:
-    api_status = f"❌ API not accessible: {str(e)}"
+    api_status = f"API not accessible: {str(e)}"
 
 st.sidebar.write(api_status)
 

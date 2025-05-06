@@ -1,6 +1,6 @@
 """
-Improved Gemini API client for the SHL Assessment Recommender.
-This version includes better error handling and JSON parsing.
+Enhanced Gemini API client for the SHL Assessment Recommender.
+This version includes better error handling, JSON parsing, and detailed assessment explanations.
 """
 
 import os
@@ -53,22 +53,35 @@ Return your response as a JSON array with this structure:
 ]
 
 Focus on providing accurate relevance scores based on how well each assessment matches the job requirements.
+Your explanation should be comprehensive and specific, detailing how the assessment measures skills needed for the role.
+
 JSON Response:
 """,
 
     "generate_explanation": """
-I need to explain why this assessment is a good match for a job.
+I need a comprehensive explanation of why this assessment is an excellent match for this job position.
 
 Job Description:
 {job_description}
 
-Assessment:
+Assessment Details:
 Name: {assessment_name}
 Description: {assessment_description}
 Type: {assessment_type}
 Duration: {assessment_duration} minutes
+Remote Testing: {remote_testing}
+Adaptive Testing: {adaptive_testing}
 
-Write a concise explanation (2-3 sentences) of why this assessment is relevant for this job position.
+Matched Job Requirements:
+{matched_requirements}
+
+Please provide a detailed explanation (4-6 sentences) covering:
+1. How this assessment specifically evaluates capabilities required for this position
+2. Which critical job skills or competencies this assessment measures
+3. Why this assessment format (duration, test type, etc.) is appropriate for evaluating candidates
+4. How the results would help hiring managers make better decisions for this specific role
+
+Be specific in connecting assessment features to job requirements, avoiding generic statements.
 """
 }
 
@@ -332,14 +345,14 @@ Adaptive Testing: {assessment.get('adaptive_support', '')}
     
     def generate_explanation(self, job_description: str, assessment: Dict[str, Any]) -> str:
         """
-        Generate a natural language explanation of why an assessment is recommended.
+        Generate a detailed and accurate explanation of why an assessment is recommended.
         
         Args:
             job_description: The original job description
             assessment: The assessment that was recommended
             
         Returns:
-            A natural language explanation
+            A detailed natural language explanation
         """
         # Validate inputs first
         if not job_description or job_description.strip() == "":
@@ -353,49 +366,135 @@ Adaptive Testing: {assessment.get('adaptive_support', '')}
         if not assessment_name and not assessment_description:
             return f"This assessment may be relevant based on the job requirements."
         
-        # Use the relevance score and matched requirements if available
-        relevance_info = ""
-        if "relevance_score" in assessment and assessment["relevance_score"] > 0:
-            relevance_info = f" with a relevance score of {assessment['relevance_score']}/100"
+        # If we already have an explanation from reranking, verify its quality
+        existing_explanation = assessment.get("explanation", "")
+        if (existing_explanation and 
+            existing_explanation != "No explanation provided." and 
+            len(existing_explanation.split()) >= 30):  # Approximately 2-3 sentences
+            return existing_explanation
         
+        # Format matched requirements for the prompt
+        matched_requirements_str = "None specified"
         matched_req = assessment.get("matched_requirements", [])
         if matched_req and len(matched_req) > 0:
-            matched_str = ", ".join(matched_req[:3])  # Limit to first 3 for brevity
-            if len(matched_req) > 3:
-                matched_str += ", and other requirements"
-            relevance_info += f" matching: {matched_str}"
-        
-        # If we already have an explanation from reranking, use it
-        if "explanation" in assessment and assessment["explanation"] and assessment["explanation"] != "No explanation provided.":
-            return assessment["explanation"]
+            matched_requirements_str = "- " + "\n- ".join(matched_req)
             
-        # Otherwise generate a new explanation
+        # Prepare additional assessment details
+        remote_testing = assessment.get("remote_testing", "Not specified")
+        adaptive_testing = assessment.get("adaptive_support", "Not specified")
+            
+        # Generate a new detailed explanation
         prompt = self.prompt_templates.get("generate_explanation", DEFAULT_PROMPT_TEMPLATES["generate_explanation"]).format(
             job_description=job_description,
-            assessment_name=assessment.get("name", "Unknown"),
-            assessment_description=assessment.get("description", "No description"),
+            assessment_name=assessment_name or "Unknown",
+            assessment_description=assessment_description or "No description available",
             assessment_type=assessment.get("test_types", "N/A"),
-            assessment_duration=assessment.get("duration", "N/A")
+            assessment_duration=assessment.get("duration", "N/A"),
+            remote_testing=remote_testing,
+            adaptive_testing=adaptive_testing,
+            matched_requirements=matched_requirements_str
         )
         
         try:
-            print("Sending explanation request to Gemini...")
-            response = self.model.generate_content(prompt)
+            print("Sending detailed explanation request to Gemini...")
+            # Increase max tokens for more detailed explanations
+            temp_generation_config = {
+                "temperature": 0.3,  # Slightly higher for more creative explanations
+                "max_output_tokens": 1500,  # More tokens for detailed explanations
+            }
+            
+            # Use temporary configuration for this specific request
+            response = genai.GenerativeModel(
+                self.model_name,
+                generation_config=temp_generation_config
+            ).generate_content(prompt)
+            
             explanation = response.text.strip()
             
             # Validate the response isn't empty or an error message
-            if not explanation or "error" in explanation.lower() or len(explanation) < 10:
-                # Fallback explanation based on assessment details
-                if assessment_description:
-                    return f"This assessment tests {assessment_name} skills{relevance_info}. {assessment_description[:100]}..."
+            if not explanation or "error" in explanation.lower() or len(explanation) < 30:
+                # Create a structured fallback explanation
+                relevance_score = assessment.get("relevance_score", 0)
+                
+                fallback = f"The {assessment_name} assessment is specifically designed to evaluate "
+                
+                # Add matched requirements if available
+                if matched_req and len(matched_req) > 0:
+                    key_skills = ", ".join(matched_req[:3])
+                    if len(matched_req) > 3:
+                        key_skills += ", and other relevant competencies"
+                    fallback += f"key skills including {key_skills}. "
                 else:
-                    return f"This assessment evaluates {assessment_name} competencies{relevance_info}."
+                    # Use assessment description to extract skills
+                    fallback += f"critical competencies for this role. "
+                
+                # Add information about test format
+                test_type = assessment.get("test_types", "")
+                duration = assessment.get("duration", "")
+                if test_type and duration:
+                    fallback += f"This {test_type} format with a duration of {duration} minutes provides a comprehensive evaluation "
+                    fallback += f"of a candidate's capabilities in a structured environment. "
+                
+                # Add information about assessment features
+                if remote_testing == "Yes":
+                    fallback += f"The assessment offers remote testing capabilities, providing flexibility in the hiring process. "
+                if adaptive_testing == "Yes":
+                    fallback += f"Its adaptive testing methodology ensures accurate measurement across different skill levels. "
+                
+                # Add relevance information
+                if relevance_score > 80:
+                    fallback += f"With a high relevance score of {relevance_score}/100, this assessment is strongly recommended for the position."
+                elif relevance_score > 60:
+                    fallback += f"With a relevance score of {relevance_score}/100, this assessment is well-suited for evaluating candidates for this role."
+                else:
+                    fallback += f"This assessment may be useful as part of a broader evaluation strategy for candidates applying to this position."
+                
+                return fallback
             
             return explanation
         except Exception as e:
-            print(f"Error generating explanation: {e}")
-            # Fallback with more context than the generic message
-            if assessment_description:
-                return f"This assessment focuses on {assessment_name}{relevance_info}."
-            else:
-                return f"This assessment may be relevant based on the job requirements{relevance_info}."
+            print(f"Error generating detailed explanation: {e}")
+            # Create a more informative fallback explanation
+            relevance_score = assessment.get("relevance_score", 0)
+            fallback = f"The {assessment_name} assessment evaluates skills relevant to this position"
+            
+            if matched_req and len(matched_req) > 0:
+                key_skills = ", ".join(matched_req[:3])
+                fallback += f", particularly {key_skills}"
+            
+            if relevance_score > 0:
+                fallback += f" (relevance score: {relevance_score}/100)"
+            
+            fallback += f". {assessment_description[:100]}"
+            if len(assessment_description) > 100:
+                fallback += "..."
+                
+            return fallback
+            
+    def batch_generate_explanations(self, job_description: str, assessments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Generate detailed explanations for multiple assessments in one batch.
+        
+        Args:
+            job_description: The original job description
+            assessments: List of assessments that were recommended
+            
+        Returns:
+            List of assessments with enhanced explanations
+        """
+        if not assessments:
+            return []
+            
+        enhanced_assessments = []
+        
+        print(f"Generating detailed explanations for {len(assessments)} assessments...")
+        for assessment in assessments:
+            # Generate a detailed explanation for each assessment
+            explanation = self.generate_explanation(job_description, assessment)
+            
+            # Create a copy of the assessment with the enhanced explanation
+            assessment_copy = assessment.copy()
+            assessment_copy["explanation"] = explanation
+            enhanced_assessments.append(assessment_copy)
+            
+        return enhanced_assessments
