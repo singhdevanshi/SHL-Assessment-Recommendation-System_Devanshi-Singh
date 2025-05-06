@@ -49,7 +49,7 @@ class GeminiClient:
     
     def _parse_json_from_response(self, text: str) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
         """
-        Parse JSON from the LLM response text, handling various formats.
+        Parse JSON from the LLM response text, with improved error handling.
         
         Args:
             text: The text response from the LLM
@@ -57,32 +57,55 @@ class GeminiClient:
         Returns:
             Parsed JSON as dict or list
         """
-        # Strip markdown code blocks if present
-        text = re.sub(r'```json\s*', '', text)
-        text = re.sub(r'```', '', text)
+        # For debugging, log the raw response
+        print(f"Raw response from Gemini: {text[:500]}...")
         
-        # Try to parse the JSON
+        # Strip markdown code blocks if present (more comprehensive pattern)
+        text = re.sub(r'```(?:json|python)?\s*', '', text)
+        text = re.sub(r'```', '', text)
+        text = text.strip()
+        
+        # Try to parse the cleaned text directly
         try:
-            return json.loads(text.strip())
-        except json.JSONDecodeError:
-            # Try to find JSON-like object in text
-            match = re.search(r'\{.*\}', text, re.DOTALL)
-            if match:
-                try:
-                    return json.loads(match.group(0))
-                except:
-                    pass
+            return json.loads(text)
+        except json.JSONDecodeError as e:
+            print(f"Initial JSON parsing failed: {e}")
             
-            # Try to find JSON array in text
-            match = re.search(r'\[.*\]', text, re.DOTALL)
-            if match:
-                try:
-                    return json.loads(match.group(0))
-                except:
-                    pass
+            # More robust JSON object extraction
+            json_pattern = r'(\{(?:[^{}]|(?R))*\})'
+            matches = re.findall(json_pattern, text, re.DOTALL)
             
-            # Return empty dict as fallback
-            print(f"Could not parse JSON from response: {text[:100]}...")
+            if matches:
+                for potential_json in matches:
+                    try:
+                        result = json.loads(potential_json)
+                        print(f"Successfully extracted JSON object")
+                        return result
+                    except json.JSONDecodeError:
+                        continue
+            
+            # Try for JSON arrays
+            array_pattern = r'(\[(?:[^\[\]]|(?R))*\])'
+            matches = re.findall(array_pattern, text, re.DOTALL)
+            
+            if matches:
+                for potential_array in matches:
+                    try:
+                        result = json.loads(potential_array)
+                        print(f"Successfully extracted JSON array")
+                        return result
+                    except json.JSONDecodeError:
+                        continue
+            
+            # Last resort: try to fix common JSON syntax errors
+            try:
+                # Replace single quotes with double quotes
+                fixed_text = text.replace("'", '"')
+                return json.loads(fixed_text)
+            except json.JSONDecodeError:
+                pass
+                
+            print(f"Could not parse JSON from response. Returning empty result.")
             return {}
     
     def extract_job_requirements(self, job_description: str) -> Dict[str, Any]:
@@ -126,10 +149,11 @@ class GeminiClient:
             }
     
     def rerank_assessments(self, job_requirements: Dict[str, Any], 
-                         candidate_assessments: List[Dict[str, Any]],
-                         top_k: int = 3) -> List[Dict[str, Any]]:
+                        candidate_assessments: List[Dict[str, Any]],
+                        top_k: int = 3) -> List[Dict[str, Any]]:
         """
         Rerank candidate assessments based on how well they match job requirements.
+        With improved response handling and debugging.
         
         Args:
             job_requirements: Structured job requirements
@@ -142,39 +166,82 @@ class GeminiClient:
         # Format job requirements for the prompt
         job_req_text = json.dumps(job_requirements, indent=2)
         
-        # Format assessments for the prompt
+        # Format assessments for the prompt with consistent keys
         assessments_text = ""
         for i, assessment in enumerate(candidate_assessments):
+            # Ensure we have all the necessary keys with defaults
+            name = assessment.get('name', '')
+            desc = assessment.get('description', 'No description available')
+            test_type = assessment.get('test_types', assessment.get('test_type', []))
+            duration = assessment.get('duration', 0)
+            remote = assessment.get('remote_testing', assessment.get('remote_support', 'No'))
+            adaptive = assessment.get('adaptive_support', 'No')
+            
             assessments_text += f"""
-Assessment {i+1}:
-Name: {assessment.get('name', '')}
-Description: {assessment.get('description', 'No description available')}
-Type: {assessment.get('test_types', '')}
-Duration: {assessment.get('duration', '')} minutes
-Remote Testing: {assessment.get('remote_testing', '')}
-Adaptive Testing: {assessment.get('adaptive_support', '')}
-
-"""
+    Assessment {i+1}:
+    Name: {name}
+    Description: {desc}
+    Type: {', '.join(test_type) if isinstance(test_type, list) else test_type}
+    Duration: {duration} minutes
+    Remote Testing: {remote}
+    Adaptive Testing: {adaptive}
+    """
         
-        # Use the template from config
-        prompt = PROMPT_TEMPLATES["rerank_assessments"].format(
-            job_requirements=job_req_text,
-            assessments_text=assessments_text
-        )
+        # Explicit prompt for reranking with specific output format
+        prompt = f"""
+    Given a job description and list of assessments, rerank the assessments based on relevance to the job.
+
+    Job Requirements:
+    {job_req_text}
+
+    Available Assessments:
+    {assessments_text}
+
+    Instructions:
+    1. Analyze how well each assessment matches the job requirements.
+    2. Assign a relevance score (0-100) to each assessment.
+    3. Provide a brief explanation of why each assessment is relevant.
+    4. List specific job requirements that each assessment matches.
+
+    Return your analysis in the following JSON format ONLY:
+    ```json
+    [
+    {{
+        "assessment_index": 1,
+        "relevance_score": 85,
+        "explanation": "This assessment directly measures critical thinking skills required for data analysis roles.",
+        "matched_requirements": ["analytical skills", "problem solving", "data interpretation"]
+    }},
+    ...
+    ]
+    ```
+
+    Only include the JSON in your response, no additional text.
+    """
+        
+        print(f"Sending reranking prompt:\n{prompt[:500]}...")
         
         try:
             response = self.model.generate_content(prompt)
+            print(f"Raw reranking response: {response.text[:500]}...")
+            
             parsed_response = self._parse_json_from_response(response.text)
+            print(f"Parsed response: {parsed_response}")
             
-            # If parsing returns a dict instead of a list, check for results key
+            # Handle the case where parsing returns a dict instead of a list
             if isinstance(parsed_response, dict):
-                parsed_response = parsed_response.get("results", [])
+                if "results" in parsed_response:
+                    parsed_response = parsed_response.get("results", [])
+                # If it's a dict with assessment_index, wrap it in a list
+                elif "assessment_index" in parsed_response:
+                    parsed_response = [parsed_response]
             
-            # If we still don't have a list, return an empty list
+            # Ensure we have a list
             if not isinstance(parsed_response, list):
+                print("Warning: Expected list from reranking but got another type. Returning empty list.")
                 parsed_response = []
             
-            # Merge the original assessment data with the reranking information
+            # Ensure each item has the expected fields
             reranked_assessments = []
             for item in parsed_response:
                 if not isinstance(item, dict):
@@ -183,12 +250,21 @@ Adaptive Testing: {assessment.get('adaptive_support', '')}
                 assessment_idx = item.get("assessment_index", 0)
                 # Adjust for 1-based indexing in the prompt
                 if assessment_idx > 0 and assessment_idx <= len(candidate_assessments):
-                    assessment = candidate_assessments[assessment_idx - 1].copy()
+                    # Create a new dictionary to avoid reference issues
+                    assessment = {}
+                    # Copy the original assessment data
+                    source_assessment = candidate_assessments[assessment_idx - 1]
+                    for key, value in source_assessment.items():
+                        assessment[key] = value
+                    
+                    # Add the reranking information
                     assessment.update({
                         "relevance_score": item.get("relevance_score", 0),
-                        "explanation": item.get("explanation", ""),
+                        "explanation": item.get("explanation", "No explanation provided"),
                         "matched_requirements": item.get("matched_requirements", [])
                     })
+                    
+                    print(f"Reranked assessment {assessment_idx}: Score={assessment['relevance_score']}")
                     reranked_assessments.append(assessment)
             
             # Sort by relevance score and take top_k
@@ -197,7 +273,10 @@ Adaptive Testing: {assessment.get('adaptive_support', '')}
         
         except Exception as e:
             print(f"Error reranking assessments: {e}")
+            import traceback
+            traceback.print_exc()
             # Fallback to returning original assessments in original order
+            print("Falling back to original ordering")
             return candidate_assessments[:top_k]
     
     def generate_explanation(self, job_description: str, assessment: Dict[str, Any], job_requirements: Optional[Dict[str, Any]] = None) -> str:

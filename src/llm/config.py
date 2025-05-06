@@ -1,63 +1,59 @@
 """
-Configuration settings for the LLM components.
+Configuration for LLM settings and prompt templates.
 """
 
-# LLM API configuration
 LLM_CONFIG = {
-    "model": "gemini-1.5-pro",  # Model to use
-    "temperature": 0.2,  # Lower temperature for more deterministic outputs
-    "max_output_tokens": 1024,  # Maximum tokens for response
+    "model": "gemini-1.5-pro",
+    "temperature": 0.2,
+    "max_output_tokens": 1024,
 }
 
-# Prompt templates
 PROMPT_TEMPLATES = {
     "extract_requirements": """
-    Extract key job requirements and skills from the following job description.
-    Format the output as JSON with these categories:
-    - technical_skills: List of technical skills required
-    - soft_skills: List of soft skills mentioned
-    - experience_level: Entry/Mid/Senior
-    - key_responsibilities: List of main job responsibilities
-    - required_competencies: List of competencies that could be assessed
-    
-    Job Description:
-    {job_description}
-    """,
-    
+You are an expert HR professional analyzing a job description.
+Extract the key elements from the following job description into structured categories.
+
+Job Description:
+{job_description}
+
+Please analyze and output ONLY a JSON with the following categories:
+- technical_skills: List of technical skills required
+- soft_skills: List of soft skills/interpersonal skills required
+- experience_level: General experience level (entry, mid, senior)
+- key_responsibilities: Primary duties of the role
+- required_competencies: Essential competencies needed to succeed
+
+Return your analysis in valid JSON format only.
+""",
+
     "rerank_assessments": """
-    Given these job requirements:
-    {job_requirements}
-    
-    And these candidate assessments:
-    {assessments_text}
-    
-    Rank the assessments by how well they match the job requirements.
-    For each assessment, provide:
-    1. A relevance score from 0-100
-    2. A brief explanation of why it matches or doesn't match
-    3. Which job requirements it addresses
-    
-    Format your response as a JSON array with objects containing:
-    - assessment_index: The index of the assessment (1-based)
-    - relevance_score: Numerical score 0-100
-    - explanation: Brief explanation
-    - matched_requirements: List of matched requirements
-    
-    Sort the assessments by relevance_score in descending order.
-    """,
-    
-    "generate_explanation": """
-    Given this job description:
-    {job_description}
-    
-    And this assessment:
-    Name: {assessment_name}
-    Description: {assessment_description}
-    Type: {assessment_type}
-    Duration: {assessment_duration}
-    
-    Explain in 2-3 sentences why this assessment would be appropriate for evaluating 
-    candidates for this position. Focus on how the assessment measures skills and 
-    competencies required for the job.
-    """
+You're an assessment selection expert tasked with recommending the best assessments for a job.
+
+Job Requirements:
+{job_requirements}
+
+Available Assessments:
+{assessments_text}
+
+Instructions:
+1. Analyze how well each assessment matches the specific job requirements
+2. Assign a relevance score to each assessment (0-100)
+3. Provide a brief explanation of why each assessment is relevant
+4. List specific job requirements that each assessment addresses
+
+Return your analysis in the following JSON format ONLY:
+```json
+[
+  {{
+    "assessment_index": 1,
+    "relevance_score": 85,
+    "explanation": "This assessment directly measures critical thinking skills required for data analysis roles.",
+    "matched_requirements": ["analytical skills", "problem solving", "data interpretation"]
+  }},
+  ...
+]
+```
+
+IMPORTANT: Only include the JSON in your response, no additional text.
+"""
 }
