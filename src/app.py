@@ -24,22 +24,39 @@ def create_app():
     # Define paths
     BASE_PATH = os.getenv("BASE_PATH", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     INDEX_PATH = os.path.join(BASE_PATH, "data", "embeddings", "faiss_index.faiss")
+    METADATA_PATH = os.path.join(BASE_PATH, "data", "assessments.json")
 
     print(f"[INFO] Looking for FAISS index at: {INDEX_PATH}")
-    print(f"[INFO] Path exists: {os.path.exists(INDEX_PATH)}")
+    print(f"[INFO] Looking for assessment metadata at: {METADATA_PATH}")
+    print(f"[INFO] Index path exists: {os.path.exists(INDEX_PATH)}")
+    print(f"[INFO] Metadata path exists: {os.path.exists(METADATA_PATH)}")
 
-    # Initialize components
+    # Initialize the FAISS index
     vector_index = FaissIndex()
-    try:
-        vector_index.load(INDEX_PATH)
-        print("[INFO] Successfully loaded FAISS index")
-    except Exception as e:
-        print(f"[ERROR] Failed to load FAISS index: {str(e)}")
+    
+    # Try to load the FAISS index
+    index_loaded = False
+    if os.path.exists(INDEX_PATH):
+        try:
+            # Load the index and metadata
+            index_loaded = vector_index.load(INDEX_PATH, METADATA_PATH)
+            print(f"[INFO] FAISS index loaded: {index_loaded}")
+            print(f"[INFO] Number of assessments in index: {len(vector_index.assessment_data)}")
+        except Exception as e:
+            print(f"[ERROR] Failed to load FAISS index: {str(e)}")
+    
+    # If the index failed to load, ensure the directory exists
+    if not index_loaded:
         os.makedirs(os.path.dirname(INDEX_PATH), exist_ok=True)
         print(f"[INFO] Please generate and save a FAISS index to: {INDEX_PATH}")
+        print(f"[INFO] The system will use fallback keyword search instead of vector search.")
 
-    # Initialize LLMRecommender with the Gemini API key
-    recommender = LLMRecommender(api_key=api_key)
+    # Initialize LLMRecommender with the Gemini API key and vector index
+    recommender = LLMRecommender(api_key=api_key, assessments_path=METADATA_PATH, vector_index=vector_index if index_loaded else None)
+    
+    # Store the assessment data for direct access
+    assessment_data = recommender.assessment_data
+    print(f"[INFO] LLMRecommender initialized with {len(assessment_data)} assessments")
 
     # Pydantic models
     class JobDescriptionRequest(BaseModel):
@@ -82,24 +99,37 @@ def create_app():
     # Health check
     @app.get("/")
     async def root():
-        return {"status": "OK", "message": "SHL Assessment Recommender API is running"}
+        return {
+            "status": "OK", 
+            "message": "SHL Assessment Recommender API is running",
+            "assessments_count": len(assessment_data),
+            "vector_search_enabled": index_loaded
+        }
 
     # Recommendation endpoint
     @app.post("/recommend")
     async def recommend_assessments(request: JobDescriptionRequest):
         try:
+            # Extract job requirements
             job_requirements = recommender.extract_job_requirements(request.job_description)
+            
+            # Get recommendations
             recommendations = recommender.recommend(
                 job_description=request.job_description,
                 top_k=request.top_k,
                 rerank=request.rerank,
                 final_results=request.final_results
             )
+            
+            if not recommendations:
+                print("[WARNING] No recommendations found. Check your assessment data.")
+                
+            # Format response
             return RecommendationResponse(
                 recommendations=[
                     AssessmentResponse(
                         name=r.get("name", ""),
-                        url=r.get("url", ""),
+                        url=r.get("url", "https://example.com/assessment"),  # Default URL if none provided
                         duration=r.get("duration"),
                         remote_testing=r.get("remote_testing"),
                         adaptive_support=r.get("adaptive_support"),
@@ -113,6 +143,7 @@ def create_app():
             )
 
         except Exception as e:
+            print(f"[ERROR] Error generating recommendations: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Error generating recommendations: {str(e)}")
 
     # Requirement extraction endpoint
@@ -121,21 +152,23 @@ def create_app():
         try:
             return recommender.extract_job_requirements(job_description)
         except Exception as e:
+            print(f"[ERROR] Error extracting requirements: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Error extracting requirements: {str(e)}")
 
     # All assessments (raw access)
     @app.get("/assessments")
     async def get_assessments(limit: int = 100, offset: int = 0):
         try:
-            all_assessments = recommender.assessment_data
-            paginated = all_assessments[offset:offset + limit]
+            # Use the stored assessment data
+            paginated = assessment_data[offset:offset + limit]
             return {
-                "total": len(all_assessments),
+                "total": len(assessment_data),
                 "limit": limit,
                 "offset": offset,
                 "assessments": paginated
             }
         except Exception as e:
+            print(f"[ERROR] Error retrieving assessments: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Error retrieving assessments: {str(e)}")
 
     return app
